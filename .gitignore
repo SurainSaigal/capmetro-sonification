@@ -24,7 +24,7 @@ wheels/
 .DS_Store
 *.csv
 *.xlsx
-*.json
 *.txt
 data/
 .env
+*.pb
