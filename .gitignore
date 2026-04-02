@@ -31,5 +31,6 @@ data/
 vehicle_positions_data/
 raw_data/
 debug_jsons/
-.vscode
+*.html
+.vscode/
 .ipynb_checkpoints/
