@@ -1,3 +1,10 @@
+from audio_synth import (
+    SAMPLE_RATE as _SAMPLE_RATE,
+    BPM_MIN as _BPM_MIN,
+    BPM_MAX as _BPM_MAX,
+    build_freq_array as _build_freq_array,
+    ChordProgressionSynth,
+)
 import argparse
 import json
 import os
@@ -73,44 +80,10 @@ def load_data(date: str, bin_seconds: int = 15) -> pd.DataFrame:
     return df
 
 
-# --- Sonification helpers ---
-_C2_HZ = 65.41   # lowest pitch (fewest buses)
-_C6_HZ = 1046.5  # highest pitch (peak buses)
-_SAMPLE_RATE = 44100
-
-
-def _freq_from_count(count: int, min_count: int, max_count: int) -> float:
-    """Map active bus count to frequency on a log (octave) scale."""
-    if max_count <= min_count:
-        return _C2_HZ
-    t = np.clip((count - min_count) / (max_count - min_count), 0.0, 1.0)
-    return _C2_HZ * (2 ** (t * np.log2(_C6_HZ / _C2_HZ)))
-
-
-def _build_freq_array(
-    sonification: str,
-    df: pd.DataFrame,
-    frames: list,
-    counts_series: pd.Series,
-    global_counts_series: pd.Series | None = None,
-) -> np.ndarray:
-    """Build a per-frame frequency array for the given sonification mode.
-
-    global_counts_series, if provided, is used to compute the min/max range so
-    that frequency scaling is consistent across previews (--max-frames) and full runs.
-    """
-    if sonification == "buscount":
-        scale_series = global_counts_series if global_counts_series is not None else counts_series
-        min_buses = int(scale_series.min())
-        max_buses = int(scale_series.max())
-        print(
-            f"Bus count range (scale): {min_buses} – {max_buses} active trips/frame")
-        return np.array(
-            [_freq_from_count(int(counts_series.get(f, min_buses)), min_buses, max_buses)
-             for f in frames],
-            dtype=np.float64,
-        )
-    raise ValueError(f"Unknown sonification mode: {sonification!r}")
+def _compute_avgspeed_series(df: pd.DataFrame) -> pd.Series:
+    """Return mean speed (m/s) per bin for moving buses (speed > 0)."""
+    moving = df[df["speed"] > 0]
+    return moving.groupby("minute")["speed"].mean()
 
 
 def build_matplotlib_map(
@@ -123,6 +96,8 @@ def build_matplotlib_map(
     prerender: bool = False,
     output_path: str | None = None,
     global_counts_series: pd.Series | None = None,
+    avgspeed_series: pd.Series | None = None,
+    global_avgspeed_series: pd.Series | None = None,
 ) -> None:
     # --- Color map: one colour per unique route_id ---
     route_ids = sorted(df["route_id"].dropna().unique())
@@ -141,6 +116,56 @@ def build_matplotlib_map(
     freq_array = _build_freq_array(
         sonification, df, frames, counts_series, global_counts_series)
     current_frame_idx = np.zeros(1, dtype=np.int64)
+
+    # Speed normalisation bounds for avgspeed mode (use global series so
+    # --max-frames previews stay consistent with full renders)
+    _spd_scale = global_avgspeed_series if global_avgspeed_series is not None else avgspeed_series
+    if _spd_scale is not None and not _spd_scale.empty:
+        _spd_min = float(_spd_scale.min())
+        _spd_max = float(_spd_scale.max())
+    else:
+        _spd_min, _spd_max = 0.0, 1.0
+
+    # Precompute normalised speed array aligned to frames (for prerender)
+    if sonification == "avgspeed" and avgspeed_series is not None:
+        _spd_range = _spd_max - _spd_min + 1e-9
+        normalized_speeds = np.array(
+            [float(np.clip((avgspeed_series.get(f, _spd_min) - _spd_min) / _spd_range, 0, 1))
+             for f in frames],
+            dtype=np.float32,
+        )
+    else:
+        normalized_speeds = None
+
+    # Precompute voice count array (1–12) for avgspeed mode using bus count
+    if sonification == "avgspeed":
+        _cnt_scale = global_counts_series if global_counts_series is not None else counts_series
+        _cnt_min = int(
+            _cnt_scale.min()) if _cnt_scale is not None and not _cnt_scale.empty else 0
+        _cnt_max = int(
+            _cnt_scale.max()) if _cnt_scale is not None and not _cnt_scale.empty else 1
+        _cnt_range = max(_cnt_max - _cnt_min, 1)
+        n_voices_array = np.array(
+            [int(np.clip(round(1 + 11 * (counts_series.get(f, _cnt_min) - _cnt_min) / _cnt_range), 1, 12))
+             for f in frames],
+            dtype=np.int32,
+        )
+        # BPM per frame: 70% bus count, 30% avg speed
+        _cnt_norm_arr = np.array(
+            [(counts_series.get(f, _cnt_min) - _cnt_min) / _cnt_range for f in frames],
+            dtype=np.float64,
+        )
+        bpm_array = _BPM_MIN + (_BPM_MAX - _BPM_MIN) * (
+            0.7 * _cnt_norm_arr + 0.3 * normalized_speeds
+        )
+    else:
+        n_voices_array = None
+        bpm_array = None
+
+    # Create ChordProgressionSynth for avgspeed live playback
+    synth = (ChordProgressionSynth()
+             if sonification == "avgspeed" and sonify
+             else None)
 
     # Fixed bounding box centered on Austin
     x_min, x_max = _AUSTIN_X - _HALF_EXTENT, _AUSTIN_X + _HALF_EXTENT
@@ -198,6 +223,17 @@ def build_matplotlib_map(
         zorder=6,
     )
 
+    # --- Stats HUD (bottom-left): avg speed + bus count ---
+    stats_text = ax.text(
+        0.01, 0.03, "",
+        transform=ax.transAxes,
+        color="#111111",
+        fontsize=11,
+        fontfamily="monospace",
+        va="bottom",
+        zorder=6,
+    )
+
     # --- Legend (route colours) ---
     # legend_handles = [
     #     Line2D([0], [0], marker="o", color="none",
@@ -218,15 +254,31 @@ def build_matplotlib_map(
 
     # --- Live audio stream (skipped in prerender mode) ---
     if sonify and not prerender:
-        _phase = np.zeros(1, dtype=np.float64)
+        if synth is not None:
+            # avgspeed: chord progression with speed-driven detuning + count-driven voices
+            def _audio_callback(outdata, frames_count, time_info, status):
+                fi = int(current_frame_idx[0])
+                speed_norm = float(
+                    normalized_speeds[fi]) if normalized_speeds is not None else 0.0
+                n_v = int(n_voices_array[fi]
+                          ) if n_voices_array is not None else 1
+                synth.set_speed(speed_norm)
+                synth.set_count(n_v)
+                if bpm_array is not None:
+                    synth.set_tempo(float(bpm_array[fi]))
+                chunk = synth.generate(frames_count)
+                outdata[:] = chunk.reshape(-1, 1)
+        else:
+            # buscount: single sine tone
+            _phase = np.zeros(1, dtype=np.float64)
 
-        def _audio_callback(outdata, frames_count, time_info, status):
-            freq = freq_array[current_frame_idx[0]]
-            phases = _phase[0] + 2 * np.pi * \
-                np.arange(1, frames_count + 1) * freq / _SAMPLE_RATE
-            _phase[0] = phases[-1] % (2 * np.pi)
-            outdata[:] = (np.sin(phases) *
-                          0.3).astype(np.float32).reshape(-1, 1)
+            def _audio_callback(outdata, frames_count, time_info, status):
+                freq = freq_array[current_frame_idx[0]]
+                phases = _phase[0] + 2 * np.pi * \
+                    np.arange(1, frames_count + 1) * freq / _SAMPLE_RATE
+                _phase[0] = phases[-1] % (2 * np.pi)
+                outdata[:] = (np.sin(phases) *
+                              0.3).astype(np.float32).reshape(-1, 1)
 
         audio_stream = sd.OutputStream(
             samplerate=_SAMPLE_RATE,
@@ -273,14 +325,34 @@ def build_matplotlib_map(
         if sonify and not prerender:
             prev_fi = int(current_frame_idx[0])
             current_frame_idx[0] = fi
-            if fi == 0 or freq_array[fi] != freq_array[prev_fi]:
-                active_count = counts_series.get(frame_minute, 0)
-                print(
-                    f"[{frame_minute}] buses: {active_count:3d}  →  {freq_array[fi]:.1f} Hz"
-                )
+            if sonification == "buscount":
+                if fi == 0 or freq_array[fi] != freq_array[prev_fi]:
+                    active_count = counts_series.get(frame_minute, 0)
+                    print(
+                        f"[{frame_minute}] buses: {active_count:3d}  →  {freq_array[fi]:.1f} Hz"
+                    )
+
+        if sonification == "avgspeed" and avgspeed_series is not None:
+            avg_ms = avgspeed_series.get(frame_minute, float("nan"))
+            moving_count = int(
+                (df_by_minute.get(frame_minute, df.iloc[:0])["speed"] > 0).sum())
+            avg_mph = avg_ms * 2.23694
 
         timestamp_text.set_text(frame_minute)
-        return lc, timestamp_text
+
+        # --- Bottom-left stats HUD ---
+        bus_count = int(counts_series.get(frame_minute, 0))
+        if avgspeed_series is not None:
+            avg_ms = avgspeed_series.get(frame_minute, float("nan"))
+            if avg_ms == avg_ms:  # not NaN
+                avg_mph_str = f"{avg_ms * 2.23694:.1f} mph"
+            else:
+                avg_mph_str = "-- mph"
+        else:
+            avg_mph_str = "-- mph"
+        stats_text.set_text(f"avg speed: {avg_mph_str}\nbuses: {bus_count}")
+
+        return lc, timestamp_text, stats_text
 
     anim = FuncAnimation(
         fig,
@@ -301,6 +373,10 @@ def build_matplotlib_map(
             output_stem=output_path,
             sonify=sonify,
             dpi=_DPI,
+            synth=synth,
+            normalized_speeds=normalized_speeds,
+            n_voices_array=n_voices_array,
+            bpm_array=bpm_array,
         )
     else:
         try:
@@ -322,13 +398,17 @@ def _render_to_file(
     output_stem: str,
     sonify: bool,
     dpi: int,
+    synth: "ChordProgressionSynth | None" = None,
+    normalized_speeds: "np.ndarray | None" = None,
+    n_voices_array: "np.ndarray | None" = None,
+    bpm_array: "np.ndarray | None" = None,
 ) -> None:
     """Render animation and synthesized audio, merging into a single MP4.
 
     Also saves the WAV separately alongside the MP4.
     Sync guarantee: both tracks are derived from the same freq_array and interval_ms.
     Video FPS = 1000 / interval_ms, so each frame = interval_ms ms exactly.
-    Audio: frame i gets round(interval_ms * SAMPLE_RATE / 1000) samples at freq_array[i],
+    Audio: frame i gets round(interval_ms * SAMPLE_RATE / 1000) samples,
     with phase carried across boundaries — total durations are identical by construction.
     """
     fps = 1000.0 / interval_ms
@@ -367,14 +447,29 @@ def _render_to_file(
         if sonify:
             print("Synthesizing audio…")
             audio_chunks = []
-            phase = 0.0
-            for i, freq in enumerate(freq_array, 1):
-                t = phase + 2 * np.pi * \
-                    np.arange(1, samples_per_frame + 1) * freq / _SAMPLE_RATE
-                audio_chunks.append((np.sin(t) * 0.3).astype(np.float32))
-                phase = t[-1] % (2 * np.pi)
-                print(
-                    f"  frame {i:>{len(str(n_frames))}}/{n_frames}", end="\r")
+
+            if synth is not None and normalized_speeds is not None:
+                # avgspeed: chord progression synth with per-frame speed + voice count
+                for i in range(n_frames):
+                    synth.set_speed(float(normalized_speeds[i]))
+                    if n_voices_array is not None:
+                        synth.set_count(int(n_voices_array[i]))
+                    if bpm_array is not None:
+                        synth.set_tempo(float(bpm_array[i]))
+                    audio_chunks.append(synth.generate(samples_per_frame))
+                    print(
+                        f"  frame {i + 1:>{len(str(n_frames))}}/{n_frames}", end="\r")
+            else:
+                # buscount: simple sine tone
+                phase = 0.0
+                for i, freq in enumerate(freq_array, 1):
+                    t = phase + 2 * np.pi * \
+                        np.arange(1, samples_per_frame + 1) * \
+                        freq / _SAMPLE_RATE
+                    audio_chunks.append((np.sin(t) * 0.3).astype(np.float32))
+                    phase = t[-1] % (2 * np.pi)
+                    print(
+                        f"  frame {i:>{len(str(n_frames))}}/{n_frames}", end="\r")
             print()
             audio_int16 = (np.concatenate(audio_chunks)
                            * 32767).astype(np.int16)
@@ -452,7 +547,7 @@ def main():
     parser.add_argument(
         "--sonification",
         default="buscount",
-        choices=["buscount"],
+        choices=["buscount", "avgspeed"],
         help="Sonification mode (default: buscount)",
     )
     parser.add_argument(
@@ -483,7 +578,11 @@ def main():
         print(f"Filtering to routes: {route_filter}")
 
     # Compute global frequency scale before any frame truncation
-    global_counts_series = df.groupby("minute")["trip_id"].nunique()
+    global_counts_series = df.groupby(
+        "minute")["trip_id"].nunique()  # bus count per bin/frame
+
+    # average speed per bin/frame (for avgspeed mode)
+    avgspeed_series = _compute_avgspeed_series(df)
 
     trail_frames = max(1, args.trail // args.bin)
 
@@ -515,6 +614,8 @@ def main():
         prerender=args.prerender,
         output_path=output_path,
         global_counts_series=global_counts_series,
+        avgspeed_series=avgspeed_series,
+        global_avgspeed_series=avgspeed_series,
     )
 
 

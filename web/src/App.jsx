@@ -1,29 +1,28 @@
 import { useState, useRef, useEffect } from "react";
 import "./App.css";
 
-const DATES = [
-    "2026_03_03",
-    "2026_03_04",
-    "2026_03_05",
-    "2026_03_06",
-    "2026_03_07",
-    "2026_03_08",
-    "2026_03_09",
-    "2026_03_10",
-    "2026_03_11",
-    "2026_03_12",
-    "2026_03_13",
-    "2026_03_14",
-    "2026_03_15",
-];
+const DATES = {
+    "Wednesday, March 4": "2026_03_04",
+    "Thursday, March 5": "2026_03_05",
+    "Friday, March 6": "2026_03_06",
+    "Saturday, March 7": "2026_03_07",
+    "Sunday, March 8": "2026_03_08",
+    "Monday, March 9": "2026_03_09",
+    "Tuesday, March 10": "2026_03_10",
+    "Wednesday, March 11": "2026_03_11",
+    "Thursday, March 12": "2026_03_12",
+    "Friday, March 13": "2026_03_13",
+    "Saturday, March 14": "2026_03_14",
+    "Sunday, March 15": "2026_03_15",
+};
 
-const SONIFICATION_TYPES = ["buscount"];
+const SONIFICATION_TYPES = { "Active Buses": "buscount", "Average Speed": "avgspeed" };
 
 const BIN = "30s";
 
 export default function App() {
-    const [date, setDate] = useState(DATES[DATES.length - 1]);
-    const [sonification, setSonification] = useState(SONIFICATION_TYPES[0]);
+    const [date, setDate] = useState(DATES["Wednesday, March 4"]);
+    const [sonification, setSonification] = useState(SONIFICATION_TYPES["Active Buses"]);
     const [notFound, setNotFound] = useState(false);
     const videoRef = useRef(null);
 
@@ -42,7 +41,7 @@ export default function App() {
             <h4 className="mb-3 text-center fw-semibold">CapMetro Sonification Gallery</h4>
             <div className="row flex-grow-1 g-3 align-items-stretch">
                 {/* Video panel */}
-                <div className="col-8 d-flex align-items-center justify-content-center rounded">
+                <div className="col-7 d-flex align-items-center justify-content-center rounded">
                     <div className="video-frame">
                         {notFound ? (
                             <div className="text-center text-secondary">
@@ -72,10 +71,11 @@ export default function App() {
                 </div>
 
                 {/* Controls panel */}
-                <div className="col-4 d-flex align-items-center">
-                    <div className="card w-100 shadow-sm">
-                        <div className="card-body">
-                            <div className="mb-3">
+                <div className="col-5">
+                    <div className="card-body">
+                        {/* Wrap selectors in a d-flex container */}
+                        <div className="d-flex gap-3 align-items-start">
+                            <div className="mb-3 flex-grow-1">
                                 <label htmlFor="date-select" className="form-label fw-medium">
                                     Date
                                 </label>
@@ -85,15 +85,15 @@ export default function App() {
                                     value={date}
                                     onChange={(e) => setDate(e.target.value)}
                                 >
-                                    {DATES.map((d) => (
-                                        <option key={d} value={d}>
-                                            {d.replaceAll("_", "-")}
+                                    {Object.entries(DATES).map(([label, value]) => (
+                                        <option key={value} value={value}>
+                                            {label}
                                         </option>
                                     ))}
                                 </select>
                             </div>
 
-                            <div className="mb-3">
+                            <div className="mb-3 flex-grow-1">
                                 <label
                                     htmlFor="sonification-select"
                                     className="form-label fw-medium"
@@ -106,22 +106,15 @@ export default function App() {
                                     value={sonification}
                                     onChange={(e) => setSonification(e.target.value)}
                                 >
-                                    {SONIFICATION_TYPES.map((s) => (
-                                        <option key={s} value={s}>
-                                            {s}
+                                    {Object.entries(SONIFICATION_TYPES).map(([label, value]) => (
+                                        <option key={value} value={value}>
+                                            {label}
                                         </option>
                                     ))}
                                 </select>
                             </div>
-
-                            <hr />
-                            <p className="small text-muted mb-0">
-                                Playing:{" "}
-                                <code>
-                                    {date.replaceAll("_", "-")} / {sonification}
-                                </code>
-                            </p>
                         </div>
+                        <hr />
                     </div>
                 </div>
             </div>
