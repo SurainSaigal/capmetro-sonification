@@ -6,6 +6,7 @@ import path from "path";
 const rendersDir = path.resolve(__dirname, "../renders");
 
 export default defineConfig({
+    base: "/capmetro-sonification/",
     plugins: [
         react(),
         {
