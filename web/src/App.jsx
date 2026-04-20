@@ -16,13 +16,19 @@ const DATES = {
     "Sunday, March 15": "2026_03_15",
 };
 
-const SONIFICATION_TYPES = { "Single Sine Wave": "buscount", "Chord Progression": "avgspeed" };
+const SONIFICATION_TYPES = {
+    "Single Sine Wave": "buscount",
+    "Chord Progression": "avgspeed",
+    "Grid Blips": "gridblip",
+};
 
 const DESCRIPTIONS = {
     buscount:
         "This is the simplest example of sonification, where the number of buses on the road is represented by a single sine wave tone. The frequency of the sine wave increases as more buses are on the road, creating a rising pitch that reflects bus traffic volume. In order to truly feel the trends, a 24-hour period has been compressed to just over 2 minutes, where each frame of the video represents 30 seconds of real time (you can see the real time in the top right corner). \n\nThe accompanying animation is a visual representation to complement the sound you are hearing. In it, each bus is shown at it's current location, along with a trail representing the past 2 minutes of location data.",
     avgspeed:
         "This is a more complicated and artistic approach to sonification. Here, we have an underlying composition driving the chords, but the tempo, number of notes in the chord voicings, and pitch drift are all controlled by the bus data. \n\nYou can hear how there is a sparse, slow arrangement in the early morning times, when not much activity occurs. However, in the peak times of day, we hear a lush and fast arrangement. We also hear the pitch drift (detunement) of the chords increase during periods of high congestion, controlled by traffic speed.",
+    gridblip:
+        'This sonification takes a more abstract approach, where the city is divided into a 60x60 grid, and each cell of the grid produces a "blip" sound whenever a bus crosses it. Pitches ascend going from south to north, so bus activity in southern areas produces lower blips while activity in northern areas produce higher blips. This video is slower than the other sonifications to allow listeners to experience it without being bombarded by random sound. \n\nWhile interesting to listen to, this sonification might not be as effective at conveying trends in the data, since the blips are chaotic and don\'t really vary in a way that makes it easy to compare different times of day.',
 };
 
 const BIN = "30s";
