@@ -20,6 +20,7 @@ const SONIFICATION_TYPES = {
     "Single Sine Wave": "buscount",
     "Chord Progression": "avgspeed",
     "Grid Blips": "gridblip",
+    "Cross Paths": "crosspath",
 };
 
 const DESCRIPTIONS = {
@@ -28,7 +29,9 @@ const DESCRIPTIONS = {
     avgspeed:
         "This is a more complicated and artistic approach to sonification. Here, we have an underlying composition driving the chords, but the tempo, number of notes in the chord voicings, and pitch drift are all controlled by the bus data. \n\nYou can hear how there is a sparse, slow arrangement in the early morning times, when not much activity occurs. However, in the peak times of day, we hear a lush and fast arrangement. We also hear the pitch drift (detunement) of the chords increase during periods of high congestion, controlled by traffic speed.",
     gridblip:
-        'This sonification takes a more abstract approach, where the city is divided into a 60x60 grid, and each cell of the grid produces a "blip" sound whenever a bus crosses it. Pitches ascend going from south to north, so bus activity in southern areas produces lower blips while activity in northern areas produce higher blips. This video is slower than the other sonifications to allow listeners to experience it without being bombarded by random sound. \n\nWhile interesting to listen to, this sonification might not be as effective at conveying trends in the data, since the blips are chaotic and don\'t really vary in a way that makes it easy to compare different times of day.',
+        'This sonification takes a more abstract approach, where the city is divided into a 60x60 grid, and each cell of the grid produces a "blip" sound whenever a bus crosses it. Pitches ascend going from south to north, so bus activity in southern areas produces lower blips while activity in northern areas produce higher blips. All blip tones belong to a C major pentatonic scale, so that all will naturally harmonize with each other. The grid has also been animated to light up whenever a bus crosses a cell, creating a reactive visual to accompany the sound. This video is slower than the previous sonifications to allow a more digestible auditory and visual experience. \n\nWhile interesting to listen to and watch, this sonification might not be as effective at conveying trends in the data, since the blips are chaotic and don\'t really vary in a way that makes it easy to compare different times of day.',
+    crosspath:
+        'This sonification is another more abstract approach, similar to "Grid Blips". Here, instead of a grid, each bus produces a blip sound whenever it crosses paths with another bus (i.e. when two buses come within a certain distance of each other). The pitch of the blip is determined by the average speed of the two buses that cross paths. Thus, two buses passing each on the highway will produce a higher tone than two buses stopped at the same intersection. An accompanying visual animation highlights these interactions. \n\nThis sonification is meant to highlight the interactions between buses, which is an interesting aspect of the data that is not often explored.',
 };
 
 const BIN = "30s";
@@ -89,8 +92,9 @@ export default function App() {
                             raw data into sound to analyze and interpret information through audio.
                             In this case, I have taken CapMetro GPS data, available freely through
                             the Texas Open Data Portal, and demonstrated multiple ways to sonify
-                            this data. All visuals and audio have been generated programmatically.
-                            Feel free to adjust the selectors below to explore.
+                            this data with accompanying visual animations. All visuals and audio
+                            have been generated programmatically using Python code. Feel free to
+                            adjust the selectors below to explore.
                         </p>
                         <hr />
                         <div className="d-flex gap-3 align-items-start">
